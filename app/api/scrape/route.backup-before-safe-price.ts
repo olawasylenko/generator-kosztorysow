@@ -408,8 +408,7 @@ export async function POST(request: Request) {
       extractMetaContent(html, "og:image") ||
       extractMetaContent(html, "twitter:image");
 
-    const price =
-      getPriceFromProduct(jsonLdProduct) || extractPriceFromHtml(html);
+    const price = getPriceFromProduct(jsonLdProduct);
 
     const name = cleanProductName(rawName, store);
 
