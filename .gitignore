@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Lokalne kopie zapasowe ChatGPT
+app/page.backup-*.tsx
