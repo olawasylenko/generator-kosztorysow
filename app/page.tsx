@@ -10,7 +10,8 @@ import {
   signInWithPopup,
   signOut,
 } from "firebase/auth";
-import { auth, googleProvider } from "../lib/firebase";
+import { auth, db, googleProvider } from "../lib/firebase";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 type Project = {
   id: number;
@@ -79,6 +80,7 @@ export default function Home() {
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -111,29 +113,82 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const savedData = localStorage.getItem(STORAGE_KEY);
+    if (!isAuthReady) return;
 
-    if (savedData) {
+    if (!currentUser) {
+      setProjects([]);
+      setActiveProjectId(null);
+      setIsLoaded(true);
+      return;
+    }
+
+    async function loadProjectsFromCloud() {
+      setIsLoaded(false);
+
       try {
-        const parsedData = JSON.parse(savedData);
+        const userDocRef = doc(db, "users", currentUser.uid);
+        const userDoc = await getDoc(userDocRef);
 
-        if (Array.isArray(parsedData.projects)) {
-          setProjects(parsedData.projects);
-        }
+        if (userDoc.exists()) {
+          const data = userDoc.data();
 
-        if (parsedData.activeProjectId) {
-          setActiveProjectId(parsedData.activeProjectId);
+          if (Array.isArray(data.projects)) {
+            setProjects(data.projects as Project[]);
+          } else {
+            setProjects([]);
+          }
+
+          if (typeof data.activeProjectId === "number") {
+            setActiveProjectId(data.activeProjectId);
+          } else {
+            setActiveProjectId(null);
+          }
+        } else {
+          const savedData = localStorage.getItem(STORAGE_KEY);
+
+          if (savedData) {
+            try {
+              const parsedData = JSON.parse(savedData);
+              const localProjects = Array.isArray(parsedData.projects)
+                ? parsedData.projects
+                : [];
+              const localActiveProjectId =
+                typeof parsedData.activeProjectId === "number"
+                  ? parsedData.activeProjectId
+                  : null;
+
+              setProjects(localProjects);
+              setActiveProjectId(localActiveProjectId);
+
+              await setDoc(userDocRef, {
+                email: currentUser.email || "",
+                projects: localProjects,
+                activeProjectId: localActiveProjectId,
+                updatedAt: serverTimestamp(),
+              });
+            } catch {
+              setProjects([]);
+              setActiveProjectId(null);
+            }
+          } else {
+            setProjects([]);
+            setActiveProjectId(null);
+          }
         }
       } catch {
-        localStorage.removeItem(STORAGE_KEY);
+        alert(
+          "Nie udało się pobrać projektów z chmury. Sprawdź połączenie internetowe."
+        );
+      } finally {
+        setIsLoaded(true);
       }
     }
 
-    setIsLoaded(true);
-  }, []);
+    loadProjectsFromCloud();
+  }, [currentUser, isAuthReady]);
 
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || !currentUser) return;
 
     localStorage.setItem(
       STORAGE_KEY,
@@ -142,7 +197,26 @@ export default function Home() {
         activeProjectId,
       })
     );
-  }, [projects, activeProjectId, isLoaded]);
+
+    const saveTimeout = window.setTimeout(async () => {
+      try {
+        await setDoc(
+          doc(db, "users", currentUser.uid),
+          {
+            email: currentUser.email || "",
+            projects,
+            activeProjectId,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch {
+        console.error("Nie udało się zapisać projektów w chmurze.");
+      }
+    }, 500);
+
+    return () => window.clearTimeout(saveTimeout);
+  }, [projects, activeProjectId, isLoaded, currentUser]);
 
   const totalCost = useMemo(() => {
     return products.reduce((sum, product) => {
@@ -252,6 +326,7 @@ export default function Home() {
 
       setAuthEmail("");
       setAuthPassword("");
+      setShowAuthPassword(false);
     } catch (error) {
       setAuthMessage(getFriendlyAuthError(error));
     } finally {
@@ -274,6 +349,7 @@ export default function Home() {
 
   async function handleLogout() {
     await signOut(auth);
+    setProjects([]);
     setActiveProjectId(null);
     setIsCreatingProject(false);
     setIsProfileMenuOpen(false);
@@ -1319,13 +1395,63 @@ export default function Home() {
 
             <label className="grid gap-2">
               <span className="font-medium">Hasło</span>
-              <input
-                type="password"
-                className="rounded-xl border border-zinc-300 px-4 py-3 outline-none focus:border-[#7a1f3d]"
-                placeholder="minimum 6 znaków"
-                value={authPassword}
-                onChange={(event) => setAuthPassword(event.target.value)}
-              />
+
+              <div className="relative">
+                <input
+                  type={showAuthPassword ? "text" : "password"}
+                  className="w-full rounded-xl border border-zinc-300 px-4 py-3 pr-12 outline-none focus:border-[#7a1f3d]"
+                  placeholder="minimum 6 znaków"
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowAuthPassword((currentValue) => !currentValue)
+                  }
+                  className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center justify-center rounded-lg p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-[#7a1f3d]"
+                  aria-label={
+                    showAuthPassword ? "Ukryj hasło" : "Pokaż hasło"
+                  }
+                  title={showAuthPassword ? "Ukryj hasło" : "Pokaż hasło"}
+                >
+                  {showAuthPassword ? (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="21"
+                      height="21"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  ) : (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="21"
+                      height="21"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="m2 2 20 20" />
+                      <path d="M6.71 6.71C3.95 8.35 2 12 2 12s3.5 7 10 7c1.55 0 2.93-.4 4.12-1.02" />
+                      <path d="M10.73 5.08C11.14 5.03 11.56 5 12 5c6.5 0 10 7 10 7a16.26 16.26 0 0 1-2.19 3.23" />
+                      <path d="M9.88 9.88a3 3 0 0 0 4.24 4.24" />
+                      <path d="M14.12 9.88A3 3 0 0 0 9.88 14.12" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </label>
 
             {authMessage && (
