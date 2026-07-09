@@ -42,3 +42,8 @@ next-env.d.ts
 
 # Lokalne kopie zapasowe ChatGPT
 app/page.backup-*.tsx
+
+# Lokalne kopie zapasowe
+_backups/
+app/page.backup-*.tsx
+app/api/scrape/route.backup-*.ts

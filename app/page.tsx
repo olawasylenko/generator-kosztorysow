@@ -122,11 +122,13 @@ export default function Home() {
       return;
     }
 
+    const user = currentUser;
+
     async function loadProjectsFromCloud() {
       setIsLoaded(false);
 
       try {
-        const userDocRef = doc(db, "users", currentUser.uid);
+        const userDocRef = doc(db, "users", user.uid);
         const userDoc = await getDoc(userDocRef);
 
         if (userDoc.exists()) {
@@ -161,7 +163,7 @@ export default function Home() {
               setActiveProjectId(localActiveProjectId);
 
               await setDoc(userDocRef, {
-                email: currentUser.email || "",
+                email: user.email || "",
                 projects: localProjects,
                 activeProjectId: localActiveProjectId,
                 updatedAt: serverTimestamp(),
