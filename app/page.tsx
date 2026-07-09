@@ -348,7 +348,9 @@ export default function Home() {
 
     try {
       await sendPasswordResetEmail(auth, authEmail);
-      setAuthMessage("Wysłaliśmy link do resetowania hasła na podany adres e-mail.");
+      setAuthMessage(
+        "Wysłaliśmy link do resetowania hasła. Sprawdź skrzynkę e-mail oraz folder Spam / Oferty / Powiadomienia."
+      );
     } catch (error) {
       setAuthMessage(getFriendlyAuthError(error));
     } finally {
@@ -1485,6 +1487,13 @@ export default function Home() {
               >
                 Nie pamiętasz hasła?
               </button>
+            )}
+
+            {authMode === "login" && (
+              <p className="text-xs leading-relaxed text-slate-500">
+                Link resetujący hasło zostanie wysłany na adres wpisany w polu e-mail.
+                Jeśli wiadomość nie przyjdzie od razu, sprawdź folder Spam.
+              </p>
             )}
 
             {authMessage && (
