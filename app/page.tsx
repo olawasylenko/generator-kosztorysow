@@ -9,6 +9,7 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { auth, db, googleProvider } from "../lib/firebase";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -329,6 +330,25 @@ export default function Home() {
       setAuthEmail("");
       setAuthPassword("");
       setShowAuthPassword(false);
+    } catch (error) {
+      setAuthMessage(getFriendlyAuthError(error));
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
+  async function handlePasswordReset() {
+    if (!authEmail.trim()) {
+      setAuthMessage("Wpisz adres e-mail, na który wysłać reset hasła.");
+      return;
+    }
+
+    setIsAuthLoading(true);
+    setAuthMessage("");
+
+    try {
+      await sendPasswordResetEmail(auth, authEmail);
+      setAuthMessage("Wysłaliśmy link do resetowania hasła na podany adres e-mail.");
     } catch (error) {
       setAuthMessage(getFriendlyAuthError(error));
     } finally {
@@ -1455,6 +1475,17 @@ export default function Home() {
                 </button>
               </div>
             </label>
+
+            {authMode === "login" && (
+              <button
+                type="button"
+                onClick={handlePasswordReset}
+                disabled={isAuthLoading}
+                className="text-left text-sm font-semibold text-[#7a1f3d] underline disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Nie pamiętasz hasła?
+              </button>
+            )}
 
             {authMessage && (
               <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-[#7a1f3d]">
