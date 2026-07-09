@@ -2,6 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+import type { User } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+} from "firebase/auth";
+import { auth, googleProvider } from "../lib/firebase";
 
 type Project = {
   id: number;
@@ -65,6 +74,16 @@ export default function Home() {
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState<"home" | "projects">("home");
+
   const [projectForm, setProjectForm] = useState(emptyProjectForm);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
 
@@ -81,6 +100,15 @@ export default function Home() {
     projects.find((project) => project.id === activeProjectId) || null;
 
   const products = activeProject?.products || [];
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setIsAuthReady(true);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const savedData = localStorage.getItem(STORAGE_KEY);
@@ -175,6 +203,198 @@ export default function Home() {
       return matchesRoom && matchesCategory && matchesStore;
     });
   }, [products, roomFilter, categoryFilter, storeFilter]);
+
+  function getFriendlyAuthError(error: unknown) {
+    const message = String(error);
+
+    if (message.includes("auth/email-already-in-use")) {
+      return "Konto z tym adresem e-mail już istnieje.";
+    }
+
+    if (message.includes("auth/invalid-email")) {
+      return "Podaj poprawny adres e-mail.";
+    }
+
+    if (message.includes("auth/weak-password")) {
+      return "Hasło jest za krótkie. Użyj minimum 6 znaków.";
+    }
+
+    if (
+      message.includes("auth/invalid-credential") ||
+      message.includes("auth/wrong-password") ||
+      message.includes("auth/user-not-found")
+    ) {
+      return "Nieprawidłowy e-mail lub hasło.";
+    }
+
+    if (message.includes("auth/popup-closed-by-user")) {
+      return "Okno logowania Google zostało zamknięte.";
+    }
+
+    return "Nie udało się zalogować. Spróbuj ponownie.";
+  }
+
+  async function handleEmailAuth() {
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setAuthMessage("Wpisz e-mail i hasło.");
+      return;
+    }
+
+    setIsAuthLoading(true);
+    setAuthMessage("");
+
+    try {
+      if (authMode === "login") {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      } else {
+        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      }
+
+      setAuthEmail("");
+      setAuthPassword("");
+    } catch (error) {
+      setAuthMessage(getFriendlyAuthError(error));
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
+  async function handleGoogleLogin() {
+    setIsAuthLoading(true);
+    setAuthMessage("");
+
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      setAuthMessage(getFriendlyAuthError(error));
+    } finally {
+      setIsAuthLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    await signOut(auth);
+    setActiveProjectId(null);
+    setIsCreatingProject(false);
+    setIsProfileMenuOpen(false);
+    setCurrentPage("home");
+    resetProductForm();
+  }
+
+  function goToHomePage() {
+    setActiveProjectId(null);
+    setIsCreatingProject(false);
+    setCurrentPage("home");
+    setIsProfileMenuOpen(false);
+    resetProductForm();
+  }
+
+  function goToMyProjects() {
+    setActiveProjectId(null);
+    setIsCreatingProject(false);
+    setCurrentPage("projects");
+    setIsProfileMenuOpen(false);
+    resetProductForm();
+  }
+
+  function UserNavigation() {
+    return (
+      <nav className="sticky top-0 z-50 border-b border-white/10 bg-[#2b0f18] px-6 py-4 text-white shadow-lg">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={goToHomePage}
+            className="text-left"
+          >
+            <div className="text-lg font-bold">Generator kosztorysów</div>
+            <div className="text-xs text-rose-200">Zestawienia materiałowe</div>
+          </button>
+
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsProfileMenuOpen((current) => !current)}
+              className="flex items-center gap-3 rounded-xl border border-white/20 px-4 py-3 font-semibold text-white transition hover:bg-white/10"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M20 21a8 8 0 0 0-16 0" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </span>
+
+              <span className="text-sm">Mój profil</span>
+
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={isProfileMenuOpen ? "rotate-180 transition" : "transition"}
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+
+            {isProfileMenuOpen && (
+              <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl bg-white text-zinc-900 shadow-2xl ring-1 ring-black/5">
+                <div className="border-b border-zinc-200 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Mój profil
+                  </p>
+                  <p className="mt-1 truncate text-sm font-bold">
+                    {currentUser?.email || currentUser?.displayName || "Użytkownik"}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={goToHomePage}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left font-semibold transition hover:bg-zinc-100"
+                >
+                  <span>Strona główna</span>
+                  <span>→</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={goToMyProjects}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left font-semibold transition hover:bg-zinc-100"
+                >
+                  <span>Moje projekty</span>
+                  <span>→</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left font-semibold text-red-600 transition hover:bg-red-50"
+                >
+                  <span>Wyloguj</span>
+                  <span>⎋</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </nav>
+    );
+  }
 
   function formatCurrency(value: number) {
     return value.toLocaleString("pl-PL", {
@@ -1059,10 +1279,94 @@ export default function Home() {
     printWindow.document.close();
   }
 
-  if (!isLoaded) {
+  if (!isLoaded || !isAuthReady) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#2b0f18] text-white">
-        <p>Ładowanie projektów...</p>
+        <p>Ładowanie aplikacji...</p>
+      </main>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#2b0f18] px-6 py-10 text-white">
+        <section className="w-full max-w-md rounded-3xl bg-white p-7 text-zinc-900 shadow-2xl">
+          <div className="mb-7 text-center">
+            <p className="mb-3 text-sm uppercase tracking-[0.28em] text-[#7a1f3d]">
+              Generator kosztorysów
+            </p>
+
+            <h1 className="text-3xl font-bold">
+              {authMode === "login" ? "Logowanie" : "Rejestracja"}
+            </h1>
+
+            <p className="mt-3 text-sm text-zinc-500">
+              Zaloguj się, aby korzystać z generatora kosztorysów.
+            </p>
+          </div>
+
+          <div className="grid gap-4">
+            <label className="grid gap-2">
+              <span className="font-medium">E-mail</span>
+              <input
+                type="email"
+                className="rounded-xl border border-zinc-300 px-4 py-3 outline-none focus:border-[#7a1f3d]"
+                placeholder="adres@email.com"
+                value={authEmail}
+                onChange={(event) => setAuthEmail(event.target.value)}
+              />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="font-medium">Hasło</span>
+              <input
+                type="password"
+                className="rounded-xl border border-zinc-300 px-4 py-3 outline-none focus:border-[#7a1f3d]"
+                placeholder="minimum 6 znaków"
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+              />
+            </label>
+
+            {authMessage && (
+              <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-[#7a1f3d]">
+                {authMessage}
+              </p>
+            )}
+
+            <button
+              onClick={handleEmailAuth}
+              disabled={isAuthLoading}
+              className="rounded-xl bg-[#7a1f3d] px-6 py-4 font-bold text-white transition hover:bg-[#5d172e] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isAuthLoading
+                ? "Proszę czekać..."
+                : authMode === "login"
+                ? "Zaloguj się"
+                : "Utwórz konto"}
+            </button>
+
+            <button
+              onClick={handleGoogleLogin}
+              disabled={isAuthLoading}
+              className="rounded-xl border border-zinc-300 px-6 py-4 font-bold text-zinc-900 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Zaloguj przez Google
+            </button>
+
+            <button
+              onClick={() => {
+                setAuthMode(authMode === "login" ? "register" : "login");
+                setAuthMessage("");
+              }}
+              className="text-sm font-semibold text-[#7a1f3d] underline"
+            >
+              {authMode === "login"
+                ? "Nie masz konta? Zarejestruj się"
+                : "Masz już konto? Zaloguj się"}
+            </button>
+          </div>
+        </section>
       </main>
     );
   }
@@ -1194,10 +1498,123 @@ export default function Home() {
     );
   }
 
+  if (!activeProject && currentPage === "home") {
+    return (
+      <>
+        <UserNavigation />
+
+        <main className="min-h-screen bg-[#2b0f18] px-6 py-12 text-white">
+          <div className="mx-auto max-w-7xl">
+            <section className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+              <div>
+                <p className="mb-4 text-sm uppercase tracking-[0.35em] text-rose-200">
+                  Generator kosztorysów
+                </p>
+
+                <h1 className="max-w-4xl text-4xl font-bold leading-tight md:text-6xl">
+                  Twórz estetyczne zestawienia materiałowe do projektów wnętrz.
+                </h1>
+
+                <p className="mt-6 max-w-2xl text-lg leading-relaxed text-rose-100">
+                  Aplikacja pomaga zebrać produkty z różnych sklepów, policzyć
+                  koszty projektu, uporządkować materiały według pomieszczeń i
+                  wygenerować gotowy plik PDF albo Excel.
+                </p>
+
+                <div className="mt-8 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={goToMyProjects}
+                    className="rounded-xl bg-white px-6 py-4 font-bold text-[#2b0f18] transition hover:bg-rose-100"
+                  >
+                    Przejdź do moich projektów
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={startNewProject}
+                    className="rounded-xl border border-white/30 px-6 py-4 font-bold text-white transition hover:bg-white/10"
+                  >
+                    Utwórz nowy projekt
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-3xl bg-white p-6 text-zinc-900 shadow-2xl">
+                <h2 className="text-2xl font-bold">Jak to działa?</h2>
+
+                <div className="mt-6 grid gap-4">
+                  <div className="rounded-2xl bg-zinc-100 p-5">
+                    <p className="text-sm font-bold text-[#7a1f3d]">Krok 1</p>
+                    <h3 className="mt-1 text-lg font-bold">
+                      Utwórz projekt
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                      Podaj nazwę projektu, autora, datę i krótki opis.
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-zinc-100 p-5">
+                    <p className="text-sm font-bold text-[#7a1f3d]">Krok 2</p>
+                    <h3 className="mt-1 text-lg font-bold">
+                      Dodaj produkty
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                      Wklej link do produktu albo uzupełnij dane ręcznie:
+                      nazwę, cenę, ilość, sklep, kategorię i pomieszczenie.
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-zinc-100 p-5">
+                    <p className="text-sm font-bold text-[#7a1f3d]">Krok 3</p>
+                    <h3 className="mt-1 text-lg font-bold">
+                      Wygeneruj zestawienie
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                      Pobierz profesjonalne zestawienie w PDF albo plik Excel
+                      do dalszej pracy.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="mt-10 grid gap-5 md:grid-cols-3">
+              <div className="rounded-3xl bg-white/10 p-6">
+                <h3 className="text-xl font-bold">Porządek w projekcie</h3>
+                <p className="mt-3 text-sm leading-relaxed text-rose-100">
+                  Produkty są podzielone według pomieszczeń, kategorii i sklepów.
+                </p>
+              </div>
+
+              <div className="rounded-3xl bg-white/10 p-6">
+                <h3 className="text-xl font-bold">Kontrola kosztów</h3>
+                <p className="mt-3 text-sm leading-relaxed text-rose-100">
+                  Aplikacja automatycznie liczy sumę projektu i częściowe
+                  podsumowania.
+                </p>
+              </div>
+
+              <div className="rounded-3xl bg-white/10 p-6">
+                <h3 className="text-xl font-bold">Eksport PDF i Excel</h3>
+                <p className="mt-3 text-sm leading-relaxed text-rose-100">
+                  Gotowe zestawienie możesz zapisać i wysłać dalej.
+                </p>
+              </div>
+            </section>
+          </div>
+        </main>
+      </>
+    );
+  }
+
   if (!activeProject) {
     return (
-      <main className="min-h-screen bg-[#2b0f18] px-6 py-10 text-white">
-        <div className="mx-auto max-w-6xl">
+      <>
+        <UserNavigation />
+
+        <main className="min-h-screen bg-[#2b0f18] px-6 py-10 text-white">
+          <div className="mx-auto max-w-6xl">
           <header className="mb-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="mb-3 text-sm uppercase tracking-[0.35em] text-rose-200">
@@ -1321,13 +1738,17 @@ export default function Home() {
               })}
             </section>
           )}
-        </div>
-      </main>
+          </div>
+        </main>
+      </>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f1f3] px-6 py-8 text-zinc-900">
+    <>
+      <UserNavigation />
+
+      <main className="min-h-screen bg-[#f7f1f3] px-6 py-8 text-zinc-900">
       <div className="mx-auto max-w-7xl">
         <header className="mb-8 rounded-3xl bg-[#2b0f18] p-6 text-white shadow-xl">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -1918,6 +2339,7 @@ export default function Home() {
           </section>
         </div>
       </div>
-    </main>
+      </main>
+    </>
   );
 }
