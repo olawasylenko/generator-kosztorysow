@@ -10,6 +10,8 @@ import {
   signInWithPopup,
   signOut,
   sendPasswordResetEmail,
+  sendEmailVerification,
+  reload,
 } from "firebase/auth";
 import { auth, db, googleProvider } from "../lib/firebase";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -77,6 +79,8 @@ export default function Home() {
   const [isLoaded, setIsLoaded] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isWaitingForEmailVerification, setIsWaitingForEmailVerification] = useState(false);
+  const [emailVerificationCheck, setEmailVerificationCheck] = useState(0);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authEmail, setAuthEmail] = useState("");
@@ -324,7 +328,11 @@ export default function Home() {
       if (authMode === "login") {
         await signInWithEmailAndPassword(auth, authEmail, authPassword);
       } else {
-        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+        const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      await sendEmailVerification(userCredential.user);
+      setCurrentUser(userCredential.user);
+      setAuthMessage("");
+      setIsWaitingForEmailVerification(true);
       }
 
       setAuthEmail("");
@@ -336,6 +344,31 @@ export default function Home() {
       setIsAuthLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    if (currentUser.emailVerified && !isWaitingForEmailVerification) {
+      return;
+    }
+
+    const interval = window.setInterval(async () => {
+      try {
+        await reload(currentUser);
+
+        if (auth.currentUser?.emailVerified) {
+          setIsWaitingForEmailVerification(false);
+          setEmailVerificationCheck((value) => value + 1);
+        }
+      } catch {
+        // Pomijamy chwilowe błędy sprawdzania potwierdzenia e-maila.
+      }
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [currentUser, isWaitingForEmailVerification, emailVerificationCheck]);
 
   async function handlePasswordReset() {
     if (!authEmail.trim()) {
@@ -1383,6 +1416,81 @@ export default function Home() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#2b0f18] text-white">
         <p>Ładowanie aplikacji...</p>
+      </main>
+    );
+  }
+
+  if (currentUser && (isWaitingForEmailVerification || !currentUser.emailVerified)) {
+    return (
+      <main className="min-h-screen bg-[#f8f2f4] px-4 py-10 text-slate-900">
+        <div className="mx-auto flex min-h-[80vh] max-w-xl items-center justify-center">
+          <section className="w-full rounded-3xl border border-[#ead2dc] bg-white p-8 shadow-xl">
+            <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#7a1f3d] text-2xl text-white">
+              ✉️
+            </div>
+
+            <h1 className="text-2xl font-bold text-slate-950">
+              Sprawdź swoją skrzynkę e-mail
+            </h1>
+
+            <p className="mt-4 leading-relaxed text-slate-600">
+              Wysłaliśmy wiadomość z linkiem do potwierdzenia adresu e-mail.
+              Kliknij link w wiadomości, a aplikacja automatycznie przejdzie dalej.
+            </p>
+
+            <p className="mt-3 text-sm leading-relaxed text-slate-500">
+              Jeżeli wiadomość nie przyszła, sprawdź folder Spam / Oferty / Powiadomienia.
+            </p>
+
+            <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+              Konto: <span className="font-semibold">{currentUser.email}</span>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={async () => {
+                  await reload(currentUser);
+
+                  if (auth.currentUser?.emailVerified) {
+                    setIsWaitingForEmailVerification(false);
+                    setEmailVerificationCheck((value) => value + 1);
+                  } else {
+                    setAuthMessage("Adres e-mail nie został jeszcze potwierdzony.");
+                  }
+                }}
+                className="rounded-2xl bg-[#7a1f3d] px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-[#5f1830]"
+              >
+                Sprawdziłam, przejdź dalej
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await sendEmailVerification(currentUser);
+                  setAuthMessage("Wysłaliśmy wiadomość ponownie. Sprawdź skrzynkę oraz Spam.");
+                }}
+                className="rounded-2xl border border-[#7a1f3d] px-5 py-3 text-sm font-bold text-[#7a1f3d] transition hover:bg-[#f8eef3]"
+              >
+                Wyślij mail ponownie
+              </button>
+
+              <button
+                type="button"
+                onClick={() => signOut(auth)}
+                className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+              >
+                Wyloguj
+              </button>
+            </div>
+
+            {authMessage && (
+              <p className="mt-5 rounded-2xl bg-[#f8eef3] px-4 py-3 text-sm font-semibold text-[#7a1f3d]">
+                {authMessage}
+              </p>
+            )}
+          </section>
+        </div>
       </main>
     );
   }
